@@ -1,0 +1,174 @@
+//my sql code
+-- Step 1: Create and select the database
+CREATE DATABASE IF NOT EXISTS UniversityDB;
+USE UniversityDB;
+
+-- Step 2: Create the tables (The Schema)
+CREATE TABLE IF NOT EXISTS Students (
+    StudentID INT PRIMARY KEY AUTO_INCREMENT,
+    Name VARCHAR(100),
+    Branch VARCHAR(50)
+);
+
+CREATE TABLE IF NOT EXISTS Courses (
+    CourseID VARCHAR(10) PRIMARY KEY,
+    CourseName VARCHAR(100),
+    MaxSeats INT,
+    AvailableSeats INT
+);
+
+CREATE TABLE IF NOT EXISTS Enrollments (
+    EnrollmentID INT PRIMARY KEY AUTO_INCREMENT,
+    StudentID INT,
+    CourseID VARCHAR(10),
+    FOREIGN KEY (StudentID) REFERENCES Students(StudentID),
+    FOREIGN KEY (CourseID) REFERENCES Courses(CourseID)
+);
+
+-- Step 3: Insert initial dummy data for testing
+INSERT INTO Students (Name, Branch) VALUES ('Vivek Prajapati', 'ECE');
+INSERT INTO Students (Name, Branch) VALUES ('Amit Sharma', 'CSE');
+
+INSERT INTO Courses (CourseID, CourseName, MaxSeats, AvailableSeats) VALUES ('CS101', 'Data Structures', 60, 60);
+INSERT INTO Courses (CourseID, CourseName, MaxSeats, AvailableSeats) VALUES ('EC201', 'Microprocessors', 40, 1);
+INSERT INTO Courses (CourseID, CourseName, MaxSeats, AvailableSeats) VALUES ('EE301', 'Control Systems', 50, 0);
+
+
+
+
+//C++ code
+#include <iostream>
+#include <string>
+#include <mysql/mysql.h>
+
+using namespace std;
+
+// Database Connection Credentials
+const char* HOST = "localhost";
+const char* USER = "root";       // Change to your MySQL username
+const char* PASS = "password";   // Change to your MySQL password
+const char* DB = "UniversityDB";
+
+MYSQL* conn;
+
+// Connect to the database
+bool connectDatabase() {
+    conn = mysql_init(0);
+    conn = mysql_real_connect(conn, HOST, USER, PASS, DB, 3306, NULL, 0);
+    if (conn) {
+        cout << "--- Connected to University Database ---" << endl;
+        return true;
+    } else {
+        cout << "Connection Failed: " << mysql_error(conn) << endl;
+        return false;
+    }
+}
+
+// Fetch and display courses
+void viewCourses() {
+    cout << "\n--- Available Courses ---" << endl;
+    string query = "SELECT CourseID, CourseName, AvailableSeats FROM Courses";
+    
+    if (mysql_query(conn, query.c_str()) == 0) {
+        MYSQL_RES* res = mysql_store_result(conn);
+        MYSQL_ROW row;
+        
+        cout << "ID\t|\tCourse Name\t\t|\tSeats Left" << endl;
+        cout << "--------------------------------------------------------" << endl;
+        
+        while ((row = mysql_fetch_row(res))) {
+            cout << row[0] << "\t|\t" << row[1] << "\t|\t" << row[2] << endl;
+        }
+        mysql_free_result(res);
+    } else {
+        cout << "Query Failed: " << mysql_error(conn) << endl;
+    }
+}
+
+// Execute the enrollment transaction
+void enrollStudent(string studentId, string courseId) {
+    cout << "\nProcessing Enrollment..." << endl;
+
+    mysql_query(conn, "START TRANSACTION");
+
+    // Check availability
+    string checkQuery = "SELECT AvailableSeats FROM Courses WHERE CourseID = '" + courseId + "'";
+    if (mysql_query(conn, checkQuery.c_str()) != 0) {
+        cout << "Error checking seats: " << mysql_error(conn) << endl;
+        mysql_query(conn, "ROLLBACK");
+        return;
+    }
+
+    MYSQL_RES* res = mysql_store_result(conn);
+    MYSQL_ROW row = mysql_fetch_row(res);
+    
+    if (row == NULL) {
+        cout << "Error: Course not found!" << endl;
+        mysql_free_result(res);
+        mysql_query(conn, "ROLLBACK");
+        return;
+    }
+
+    int availableSeats = stoi(row[0]);
+    mysql_free_result(res);
+
+    if (availableSeats <= 0) {
+        cout << "Enrollment Failed: Course is fully booked!" << endl;
+        mysql_query(conn, "ROLLBACK");
+        return;
+    }
+
+    // Insert record
+    string insertQuery = "INSERT INTO Enrollments (StudentID, CourseID) VALUES (" + studentId + ", '" + courseId + "')";
+    if (mysql_query(conn, insertQuery.c_str()) != 0) {
+        cout << "Enrollment Failed (Constraint Error): " << mysql_error(conn) << endl;
+        mysql_query(conn, "ROLLBACK");
+        return;
+    }
+
+    // Update capacity
+    string updateQuery = "UPDATE Courses SET AvailableSeats = AvailableSeats - 1 WHERE CourseID = '" + courseId + "'";
+    if (mysql_query(conn, updateQuery.c_str()) != 0) {
+        cout << "Error updating seats: " << mysql_error(conn) << endl;
+        mysql_query(conn, "ROLLBACK");
+        return;
+    }
+
+    mysql_query(conn, "COMMIT");
+    cout << "Success! Student " << studentId << " has been enrolled in " << courseId << "." << endl;
+}
+
+int main() {
+    if (!connectDatabase()) {
+        return 1; 
+    }
+
+    int choice;
+    do {
+        cout << "\n==================================" << endl;
+        cout << "  UNIVERSITY ENROLLMENT SYSTEM  " << endl;
+        cout << "==================================" << endl;
+        cout << "1. View Available Courses" << endl;
+        cout << "2. Enroll in a Course" << endl;
+        cout << "3. Exit" << endl;
+        cout << "Enter your choice: ";
+        cin >> choice;
+
+        if (choice == 1) {
+            viewCourses();
+        } 
+        else if (choice == 2) {
+            string stuId, crsId;
+            cout << "Enter Student ID: ";
+            cin >> stuId;
+            cout << "Enter Course ID: ";
+            cin >> crsId;
+            enrollStudent(stuId, crsId);
+        }
+
+    } while (choice != 3);
+
+    cout << "Closing system..." << endl;
+    mysql_close(conn); 
+    return 0;
+}
